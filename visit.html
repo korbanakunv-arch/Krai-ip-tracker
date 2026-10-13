@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>KRAI // LINK NOTICE</title>
+<style>
+:root{color-scheme:dark;--bg:#050a07;--panel:#0b1710;--line:#205438;--green:#58ff9a;--text:#e1ffeb;--muted:#b4cabb}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:18px;background:radial-gradient(ellipse at top,#10261a 0,#050a07 60%);color:var(--text);font:16px system-ui,sans-serif}
+.card{width:100%;max-width:500px;padding:25px;border:1px solid var(--line);border-radius:18px;background:var(--panel);box-shadow:0 20px 70px #0008}.tag{font-size:12px;letter-spacing:3px;color:var(--green)}h1{margin:12px 0;font-size:27px}p{line-height:1.6;color:var(--muted)}.dest{padding:12px;border-radius:9px;background:#06100a;border:1px solid #244a32;overflow-wrap:anywhere;color:#72ffa5}.btn{display:block;width:100%;margin-top:10px;padding:13px;border-radius:10px;border:1px solid #298f55;background:#12492b;color:#effff4;font-size:15px;font-weight:700}.secondary{background:#111b14;border-color:#4a584e}.small{font-size:12px;color:#8fa797}button:disabled{opacity:.5}#status{overflow-wrap:anywhere;color:var(--green)}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="tag">KRAI // TRANSPARENCY NOTICE</div>
+  <h1>Sebelum kamu melanjutkan</h1>
+  <p>Link ini memakai <b>Krai IP Tracker</b>. Silakan periksa tujuan link dan pemberitahuan data sebelum memilih.</p>
+  <p><b>Tujuan link:</b></p>
+  <div id="destination" class="dest">Memuat alamat tujuan…</div>
+  <p>Jika kamu menekan <b>“Saya setuju”</b>, aplikasi akan menyimpan alamat IP publik yang terdeteksi, waktu persetujuan, dan perkiraan lokasi (negara/wilayah/kota serta koordinat) dari IP untuk ditampilkan di dashboard pemilik link.</p>
+  <p>Untuk memperkirakan lokasi, alamat IP juga dikirim ke layanan eksternal <b>ipwho.is</b>. Lokasi IP bukan GPS; bisa meleset, terutama di jaringan seluler, VPN, atau jaringan bersama.</p>
+  <p>Jika menolak, aplikasi tidak menambahkan kunjungan ke daftar catatan tracker dan kamu tetap bisa menuju tujuan link. Penyedia hosting/jaringan tetap bisa memproses metadata koneksi mereka sendiri.</p>
+  <button class="btn" id="agree">Saya mengerti &amp; setuju</button>
+  <button class="btn secondary" id="decline">Tidak setuju, lanjutkan</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <p class="small">Jangan setuju jika kamu tidak nyaman dengan pemberitahuan di atas.</p>
+</main>
+<script>
+const id = location.pathname.split('/').filter(Boolean).pop();
+const destination = document.getElementById('destination');
+const statusText = document.getElementById('status');
+const agree = document.getElementById('agree');
+const decline = document.getElementById('decline');
+let ready = false;
+(async () => {
+  try {
+    const response = await fetch('/api/link/' + encodeURIComponent(id), {cache:'no-store'});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Link tidak tersedia.');
+    const full = document.createElement('div');
+    full.textContent = data.destination;
+    destination.replaceChildren(full);
+    ready = true;
+  } catch (err) {
+    destination.textContent = 'Tidak dapat memuat tujuan link.';
+    statusText.textContent = err.message;
+    agree.disabled = true;
+    decline.disabled = true;
+  }
+})();
+async function continueToSite(accepted) {
+  if (!ready) return;
+  agree.disabled = true;
+  decline.disabled = true;
+  statusText.textContent = 'Memproses pilihan…';
+  try {
+    const response = await fetch('/api/consent', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({id, accepted})
+    });
+    const data = await response.json();
+    if (!response.ok || !data.redirectTo) throw new Error(data.error || 'Permintaan gagal.');
+    location.replace(data.redirectTo);
+  } catch (err) {
+    statusText.textContent = 'Gagal melanjutkan: ' + err.message;
+    agree.disabled = false;
+    decline.disabled = false;
+  }
+}
+agree.addEventListener('click', () => continueToSite(true));
+decline.addEventListener('click', () => continueToSite(false));
+</script>
+</body>
+</html>

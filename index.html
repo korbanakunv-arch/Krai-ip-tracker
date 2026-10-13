@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>KRAI // IP TRACKER</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<style>
+:root{color-scheme:dark;--bg:#050a07;--panel:#0b1710;--line:#1c4b30;--green:#58ff9a;--text:#ddffe8;--muted:#90aa99}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top,#0c1d13 0,#050a07 50%);color:var(--text);font:14px system-ui,sans-serif}header{padding:23px 17px;border-bottom:1px solid #1b422b;background:#07100a}header small{color:var(--green);letter-spacing:3px}h1{margin:7px 0;font-size:25px}main{max-width:1100px;margin:auto;padding:14px}.panel{padding:16px;margin:13px 0;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:0 10px 30px #0002}h2{font-size:16px;margin:0 0 12px}.row{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.row>*{flex:1;min-width:140px}input,button{font:inherit;width:100%;padding:12px;margin:4px 0;border-radius:9px;border:1px solid #2b6543;background:#06100a;color:var(--text)}button{background:#12452a;font-weight:700}button.secondary{background:#111b14;border-color:#405448}button.danger{background:#3d1515;border-color:#8d3c3c}.hint,.muted{color:var(--muted);line-height:1.55}.hint{font-size:12px}.result{color:var(--green);overflow-wrap:anywhere;line-height:1.5}#map{height:340px;border-radius:10px;border:1px solid #244630;background:#0a130d}.tablewrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:470px}th,td{text-align:left;padding:10px 9px;border-bottom:1px solid #203a29;vertical-align:top;overflow-wrap:anywhere}th{color:var(--green)}#status{min-height:20px;color:var(--green);overflow-wrap:anywhere}.stat{color:var(--green);font-size:18px;font-weight:700}.pill{border:1px solid #245e3c;padding:4px 8px;border-radius:99px;font-size:12px;color:#8dffb4}@media(max-width:600px){h1{font-size:22px}#map{height:280px}.panel{padding:13px}}
+</style>
+</head>
+<body>
+<header><small>KRAITOOLS // NETWORK LAB</small><h1>KRAI IP TRACKER</h1><div class="muted">Consent-based visit log <span class="pill">IP geo is approximate</span></div></header>
+<main>
+<section class="panel">
+  <h2>01 / Admin access</h2>
+  <div class="row"><input id="adminKey" type="password" autocomplete="current-password" placeholder="Masukkan ADMIN_KEY rahasia"><button id="saveKey">Hubungkan dashboard</button></div>
+  <p class="hint">Kunci admin adalah password rahasia yang kamu tentukan di pengaturan hosting. Jangan taruh kunci di link atau bagikan ke orang lain. Kunci hanya disimpan dalam sesi tab ini.</p>
+  <div id="status" role="status" aria-live="polite"></div>
+</section>
+<section class="panel">
+  <h2>02 / Link generator</h2>
+  <form id="createForm"><input id="targetUrl" type="url" required maxlength="2048" placeholder="https://website-tujuan.com"><button type="submit">GENERATE KRAI LINK</button></form>
+  <div id="generated" class="result"></div><button class="secondary" id="copyLink" hidden>Salin link</button>
+  <p class="hint">Link yang dibuat akan menampilkan pemberitahuan secara jelas, menyebut alamat tujuan, dan meminta persetujuan sebelum aplikasi mencatat IP. Jangan menyamarkan tujuan link.</p>
+</section>
+<section class="panel">
+  <div class="row"><h2>03 / Peta lokasi IP perkiraan</h2><button id="refresh">Refresh data</button></div>
+  <div id="map" aria-label="Peta lokasi IP berdasarkan perkiraan geolokasi"></div>
+  <p class="hint">Peta menunjukkan perkiraan lokasi jaringan IP, bukan lokasi GPS atau alamat rumah. Pin bisa tidak akurat. Peta memerlukan internet untuk memuat ubin OpenStreetMap.</p>
+</section>
+<section class="panel">
+  <div class="row"><h2>04 / Catatan kunjungan dengan persetujuan</h2><button id="clearVisits" class="danger">Hapus seluruh catatan</button></div>
+  <div class="stat" id="count">—</div><p class="muted">Data prototipe hanya di memori server, maksimal 500 catatan, dan hilang ketika server restart/deploy ulang.</p>
+  <div class="tablewrap"><table><thead><tr><th>Waktu</th><th>IP</th><th>Lokasi perkiraan</th><th>Link</th></tr></thead><tbody id="rows"></tbody></table></div>
+</section>
+<section class="panel"><h2>05 / Link yang dibuat</h2><button id="loadLinks" class="secondary">Muat daftar link</button><div class="tablewrap"><table><thead><tr><th>Dibuat</th><th>Link Krai</th><th>Tujuan</th><th>Aksi</th></tr></thead><tbody id="linkRows"></tbody></table></div></section>
+<footer class="hint">KRAI IP TRACKER • Versi 1.0 • Gunakan hanya dengan pemberitahuan dan persetujuan yang jelas.</footer>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+const $ = id => document.getElementById(id);
+let generatedUrl = '';
+let markers = [];
+const map = L.map('map').setView([-2.5,118],4);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+function adminKey(){return sessionStorage.getItem('krai_admin_key') || '';}
+function status(message){$('status').textContent=message;}
+async function api(url,options={}){
+  const headers=Object.assign({},options.headers||{}, {'x-admin-key':adminKey()});
+  const response=await fetch(url,Object.assign({},options,{headers,cache:'no-store'}));
+  const data=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(data.error || ('HTTP '+response.status));
+  return data;
+}
+function cell(row,value){const td=document.createElement('td');td.textContent=value || 'Tidak tersedia';row.appendChild(td);return td;}
+$('saveKey').addEventListener('click',async()=>{
+  const value=$('adminKey').value.trim();
+  if(value) sessionStorage.setItem('krai_admin_key',value);
+  $('adminKey').value='';
+  try{await loadVisits(); await loadLinks();status('Dashboard terhubung.');}
+  catch(error){status(error.message);}
+});
+$('createForm').addEventListener('submit',async event=>{
+  event.preventDefault();$('generated').textContent='Membuat link…';$('copyLink').hidden=true;
+  try{const data=await api('/api/links',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({targetUrl:$('targetUrl').value.trim()})});generatedUrl=data.url;$('generated').textContent=generatedUrl;$('copyLink').hidden=false;status('Link berhasil dibuat.');await loadLinks();}
+  catch(error){$('generated').textContent='';status(error.message);}
+});
+$('copyLink').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(generatedUrl);status('Link disalin.');}catch{status('Salin link dari teks yang ditampilkan secara manual.');}});
+async function loadVisits(){
+  const data=await api('/api/admin/visits');$('count').textContent='TOTAL CATATAN: '+data.total;$('rows').replaceChildren();
+  markers.forEach(marker=>map.removeLayer(marker));markers=[];
+  for(const visit of data.visits){
+    const row=document.createElement('tr');cell(row,new Date(visit.consentedAt).toLocaleString());cell(row,visit.ip);
+    const location=[visit.city,visit.region,visit.country].filter(Boolean).join(', ');cell(row,location);
+    cell(row,visit.linkId);$('rows').appendChild(row);
+    if(Number.isFinite(visit.latitude)&&Number.isFinite(visit.longitude)){
+      const marker=L.marker([visit.latitude,visit.longitude]).addTo(map);
+      const popup=document.createElement('div');const title=document.createElement('strong');title.textContent='Perkiraan lokasi IP';popup.appendChild(title);
+      const details=document.createElement('p');details.textContent=(location||'Lokasi tidak tersedia')+' • '+visit.ip;popup.appendChild(details);
+      marker.bindPopup(popup);markers.push(marker);
+    }
+  }
+  if(markers.length===1) map.setView(markers[0].getLatLng(),7);
+  else if(markers.length>1){const group=L.featureGroup(markers);map.fitBounds(group.getBounds().pad(.15),{maxZoom:7});}
+}
+async function loadLinks(){
+  const data=await api('/api/admin/links');$('linkRows').replaceChildren();
+  for(const link of data.links){
+    const row=document.createElement('tr');cell(row,new Date(link.createdAt).toLocaleString());cell(row,link.url);cell(row,link.destination);
+    const td=document.createElement('td');const btn=document.createElement('button');btn.textContent='Hapus';btn.className='danger';btn.addEventListener('click',async()=>{if(!confirm('Hapus link ini?'))return;try{await api('/api/admin/links/'+encodeURIComponent(link.id),{method:'DELETE'});await loadLinks();status('Link dihapus.');}catch(error){status(error.message);}});td.appendChild(btn);row.appendChild(td);$('linkRows').appendChild(row);
+  }
+}
+$('refresh').addEventListener('click',async()=>{try{await loadVisits();status('Data diperbarui.');}catch(error){status(error.message);}});
+$('loadLinks').addEventListener('click',async()=>{try{await loadLinks();status('Daftar link diperbarui.');}catch(error){status(error.message);}});
+$('clearVisits').addEventListener('click',async()=>{if(!confirm('Hapus SELURUH catatan kunjungan?'))return;try{await api('/api/admin/visits',{method:'DELETE'});await loadVisits();status('Semua catatan kunjungan dihapus.');}catch(error){status(error.message);}});
+if(adminKey()){loadVisits().then(loadLinks).catch(()=>status('Masukkan kunci admin yang valid.'));}
+</script>
+</body>
+</html>
